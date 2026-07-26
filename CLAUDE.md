@@ -23,6 +23,12 @@ here. What applies instead:
 - `.github/workflows/validate.yml` — lints the four workflows above with
   `actionlint` on every push/PR to this repo, so a broken reusable workflow
   never reaches `@main` for a consumer to pull
+- `templates/` — canonical config boilerplate (`Directory.Build.props`,
+  `.editorconfig`, `.gitattributes`, `dependabot.yml`,
+  `dependabot-lockfile-sync.yml`, `NuGet.config`,
+  `tests/Directory.Build.props`) copied into each consumer repo, not
+  referenced remotely — see `templates/README.md` for the placeholder
+  convention and per-file adoption notes
 
 See [README.md](README.md) for each workflow's full input/secret contract
 and a copy-pasteable `uses:` example.
