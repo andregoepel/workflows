@@ -25,3 +25,10 @@ jobs:
         with:
           reporter: local
           fail_level: error
+          # Reviewdog's default filter mode diffs against the base branch to
+          # scope findings to changed lines, which needs a non-shallow
+          # checkout and fails as "diff command is empty" on a shallow one.
+          # We want every finding reported regardless of which line changed,
+          # so skip diff-based filtering entirely instead of deepening the
+          # checkout just to support a filter we don't need.
+          filter_mode: nofilter
