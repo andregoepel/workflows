@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # This repo ships GitHub Actions workflows, not application code — the only
+  # dependencies are the SHA-pinned actions used inside .github/workflows/*.yml.
+  # Dependabot updates both the pinned SHA and the version comment.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

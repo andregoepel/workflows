@@ -1,0 +1,34 @@
+name: Validate
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# This repo ships reusable `workflow_call` workflows consumed by other repos via
+# `uses: andregoepel/workflows/.github/workflows/*.yml@main`. A syntax or shellcheck
+# error here would only surface in a *consumer's* CI run, so it is linted on every
+# push/PR to this repo instead — broken workflows must never reach `@main`.
+#
+# Actions are pinned to commit SHAs (not mutable tags) so a retagged or
+# compromised action version cannot silently enter the pipeline.
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: actionlint
+        uses: reviewdog/action-actionlint@50842263c20a7c46bd0065b9e624d3c569db061e # v1.73.0
+        with:
+          reporter: local
+          fail_level: error
+          # Reviewdog's default filter mode diffs against the base branch to
+          # scope findings to changed lines, which needs a non-shallow
+          # checkout and fails as "diff command is empty" on a shallow one.
+          # We want every finding reported regardless of which line changed,
+          # so skip diff-based filtering entirely instead of deepening the
+          # checkout just to support a filter we don't need.
+          filter_mode: nofilter

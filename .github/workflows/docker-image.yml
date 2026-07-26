@@ -1,0 +1,49 @@
+name: Docker Image CI
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: 'Fully-qualified image name, e.g. "ghcr.io/OWNER/REPO". Callers must pass this explicitly rather than relying on a computed default, since org slugs with uppercase letters (ghcr.io requires lowercase) need an explicit override.'
+        type: string
+        required: true
+      dockerfile:
+        description: "Path to the Dockerfile to build"
+        type: string
+        required: true
+      context:
+        description: "Docker build context"
+        type: string
+        default: "."
+
+# Actions are pinned to commit SHAs (not mutable tags) so a retagged or
+# compromised action version cannot silently enter the pipeline. The trailing
+# comment records the human-readable version each SHA corresponds to.
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write # push to GitHub Container Registry via the built-in GITHUB_TOKEN
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the Docker image
+        run: |
+          docker build ${{ inputs.context }} \
+            --file ${{ inputs.dockerfile }} \
+            --tag "${{ inputs.image }}:${{ github.sha }}" \
+            --tag "${{ inputs.image }}:latest"
+
+      # Only publish from main; pull requests build the image but do not push.
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push image
+        if: github.event_name == 'push'
+        run: |
+          docker push "${{ inputs.image }}:${{ github.sha }}"
+          docker push "${{ inputs.image }}:latest"
