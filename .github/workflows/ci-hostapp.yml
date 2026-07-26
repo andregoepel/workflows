@@ -1,0 +1,87 @@
+name: CI (host app)
+
+on:
+  workflow_call:
+    inputs:
+      global-json-file:
+        description: "Path to global.json pinning the SDK version (matches the implicit Blazor asset package to the lockfiles)"
+        type: string
+        default: "global.json"
+      restore-projects:
+        description: "Newline-separated list of deployed-app + test .csproj paths, restored with --locked-mode and vulnerability-scanned"
+        type: string
+        required: true
+      apphost-project:
+        description: "Path to the .NET Aspire AppHost .csproj, restored plainly (RID-specific packages, dev-only, never shipped)"
+        type: string
+        required: true
+      e2e-project:
+        description: "Path to the E2E test .csproj, restored plainly and excluded from this workflow's test run. Leave empty if the repo has no E2E suite."
+        type: string
+        default: ""
+      test-filter:
+        description: 'Optional `dotnet test --filter` expression, e.g. "FullyQualifiedName!~E2ETests"'
+        type: string
+        default: ""
+
+# Actions are pinned to commit SHAs (not mutable tags) so a retagged or
+# compromised action version cannot silently enter the pipeline. The trailing
+# comment records the human-readable version each SHA corresponds to.
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Install the exact SDK pinned in global.json so the implicit Blazor asset
+      # package (Microsoft.AspNetCore.App.Internal.Assets) matches the lockfiles.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: ${{ inputs.global-json-file }}
+
+      # --locked-mode fails the build if the committed packages.lock.json files
+      # would change, making restores reproducible and tamper-evident. The Aspire
+      # AppHost is excluded (RID-specific packages, dev-only) and restored plainly.
+      - name: Restore (locked) — deployed app + tests
+        run: |
+          while IFS= read -r proj; do
+            [ -z "$proj" ] && continue
+            dotnet restore "$proj" --locked-mode
+          done <<< "${{ inputs.restore-projects }}"
+
+      - name: Restore AppHost (dev-only Aspire orchestration)
+        run: dotnet restore ${{ inputs.apphost-project }}
+
+      - name: Restore E2E tests (Aspire test host)
+        if: inputs.e2e-project != ''
+        run: dotnet restore ${{ inputs.e2e-project }}
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Format check
+        run: dotnet csharpier check .
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      # The E2E suite (when present) boots real containers via Playwright and is slow, so it is
+      # excluded here via test-filter and runs in the dedicated e2e.yml workflow instead.
+      - name: Test
+        run: dotnet test --no-build -c Release ${{ inputs.test-filter != '' && format('--filter "{0}"', inputs.test-filter) || '' }}
+
+      # Fail the build on any known-vulnerable package (direct or transitive) in
+      # the deployed app or the test surface. The Aspire AppHost is intentionally
+      # excluded: it is local-only orchestration, never shipped — the Docker image
+      # builds the deployed app project alone.
+      - name: Vulnerability scan
+        run: |
+          while IFS= read -r proj; do
+            [ -z "$proj" ] && continue
+            dotnet list "$proj" package --vulnerable --include-transitive 2>&1 | tee -a vulnerable.txt
+          done <<< "${{ inputs.restore-projects }}"
+          if grep -qiE '\b(Critical|High|Moderate|Low)\b' vulnerable.txt; then
+            echo "::error::Vulnerable NuGet packages detected (see log above)."
+            exit 1
+          fi

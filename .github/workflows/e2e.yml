@@ -1,0 +1,72 @@
+name: E2E
+
+on:
+  workflow_call:
+    inputs:
+      e2e-project:
+        description: "Path to the E2E test .csproj (Aspire + Playwright)"
+        type: string
+        required: true
+      dotnet-version:
+        description: ".NET SDK version to install (mutually exclusive with global-json-file; ignored if global-json-file is set)"
+        type: string
+        default: "10.0.x"
+      global-json-file:
+        description: "Path to global.json pinning the SDK version — takes precedence over dotnet-version when set"
+        type: string
+        default: ""
+      target-framework:
+        description: "Target framework moniker of the E2E project's build output, used to locate playwright.ps1"
+        type: string
+        default: "net10.0"
+
+# Actions are pinned to commit SHAs (matching ci-library.yml / ci-hostapp.yml) so a
+# retagged or compromised action version cannot silently enter the pipeline.
+jobs:
+  end-to-end:
+    runs-on: ubuntu-latest
+    # GitHub-hosted Linux runners ship with Docker, which Aspire.Hosting.Testing uses to
+    # start the containers (Postgres, and any other service dependencies) for the real
+    # end-to-end run.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET (dotnet-version)
+        if: inputs.global-json-file == ''
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Setup .NET (global.json)
+        if: inputs.global-json-file != ''
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: ${{ inputs.global-json-file }}
+
+      - name: Build E2E project
+        run: dotnet build ${{ inputs.e2e-project }} -c Release
+
+      - name: Install Playwright browsers
+        run: |
+          PROJ_DIR="$(dirname "${{ inputs.e2e-project }}")"
+          pwsh "$PROJ_DIR/bin/Release/${{ inputs.target-framework }}/playwright.ps1" install --with-deps chromium
+
+      # Standard, non-optional feature of this reusable workflow: on failure, the test
+      # host is expected to drop a Playwright trace under PLAYWRIGHT_TRACE_DIR (see
+      # marten-identity's E2ETestBase) so a headless-runner failure can be replayed
+      # action by action instead of re-run blind.
+      - name: Run E2E tests
+        env:
+          PLAYWRIGHT_TRACE_DIR: ${{ github.workspace }}/playwright-traces
+        run: dotnet test ${{ inputs.e2e-project }} --no-build -c Release
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-traces
+          path: ${{ github.workspace }}/playwright-traces
+          if-no-files-found: ignore
+          retention-days: 14

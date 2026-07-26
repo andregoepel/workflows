@@ -1,0 +1,101 @@
+name: CI (library)
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: ".NET SDK version to install (setup-dotnet dotnet-version syntax)"
+        type: string
+        default: "10.0.x"
+      test-filter:
+        description: 'Optional `dotnet test --filter` expression, e.g. "FullyQualifiedName!~E2ETests"'
+        type: string
+        default: ""
+      pack-projects:
+        description: "Newline-separated list of .csproj paths to pack and publish on a vX.Y.Z tag push"
+        type: string
+        required: true
+      nuget-source:
+        description: "NuGet feed to push packages to"
+        type: string
+        default: "https://api.nuget.org/v3/index.json"
+    secrets:
+      NUGET_USER:
+        description: "NuGet trusted-publishing user, exchanged for a short-lived API key via NuGet/login"
+        required: true
+
+# Actions are pinned to commit SHAs (not mutable tags) so a retagged or
+# compromised action version cannot silently enter the pipeline. The trailing
+# comment records the human-readable version each SHA corresponds to.
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      # --locked-mode fails the build if the committed packages.lock.json files
+      # would change, making restores reproducible and tamper-evident.
+      - name: Restore
+        run: dotnet restore --locked-mode
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Format check
+        run: dotnet csharpier check .
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: Test
+        run: dotnet test --no-build -c Release ${{ inputs.test-filter != '' && format('--filter "{0}"', inputs.test-filter) || '' }}
+
+      # Fail the build on any known-vulnerable package (direct or transitive).
+      - name: Vulnerability scan
+        run: |
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable.txt
+          if grep -qiE '\b(Critical|High|Moderate|Low)\b' vulnerable.txt; then
+            echo "::error::Vulnerable NuGet packages detected (see log above)."
+            exit 1
+          fi
+
+  pack-and-publish:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      id-token: write # request the OIDC token for NuGet trusted publishing
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Pack
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          while IFS= read -r proj; do
+            [ -z "$proj" ] && continue
+            dotnet pack "$proj" -c Release -p:Version=$VERSION -p:RestoreLockedMode=true -o nupkgs
+          done <<< "${{ inputs.pack-projects }}"
+
+      # Trusted publishing: exchange the GitHub OIDC token for a short-lived
+      # nuget.org API key. Requires a trusted publishing policy on the target
+      # feed for this repository + workflow file.
+      - name: NuGet login (OIDC → temporary API key)
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to NuGet
+        run: dotnet nuget push "nupkgs/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source ${{ inputs.nuget-source }}
