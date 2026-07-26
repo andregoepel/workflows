@@ -9,6 +9,17 @@ consumed everywhere, instead of hand-maintained copies drifting apart across
 repos. See [CLAUDE.md](CLAUDE.md) for how this repo fits into the wider
 ecosystem.
 
+## Canonical config templates
+
+[`templates/`](templates/) holds the config boilerplate that's 90–100%
+identical across every .NET repo in the ecosystem (`Directory.Build.props`,
+`.editorconfig`, `.gitattributes`, `dependabot.yml`,
+`dependabot-lockfile-sync.yml`, `NuGet.config`,
+`tests/Directory.Build.props`). Unlike the reusable workflows below, these
+are copied into a consumer repo rather than referenced with `uses:`. See
+[`templates/README.md`](templates/README.md) for what each file is, which
+variant applies when, and the `{{PLACEHOLDER}}` convention.
+
 ## Reusable workflows
 
 All four live in [`.github/workflows/`](.github/workflows/) and are called
