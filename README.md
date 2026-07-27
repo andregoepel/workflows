@@ -29,19 +29,14 @@ with `uses: andregoepel/workflows/.github/workflows/<file>.yml@main`. Pin to
 ### `ci-library.yml`
 
 For NuGet library repos: restore (locked) → format check → build → test →
-vulnerability scan, then pack + publish to NuGet on a `vX.Y.Z` tag push via
-OIDC trusted publishing.
+vulnerability scan. Does **not** pack or publish — see
+[`nuget-publish` action](#nuget-publish-action) below for why that step
+can't live in a called reusable workflow.
 
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `dotnet-version` | no | `10.0.x` | SDK version, `setup-dotnet` syntax |
 | `test-filter` | no | `""` | Optional `dotnet test --filter` expression |
-| `pack-projects` | **yes** | — | Newline-separated `.csproj` paths to pack |
-| `nuget-source` | no | `https://api.nuget.org/v3/index.json` | Push target |
-
-| Secret | Required | Description |
-|---|---|---|
-| `NUGET_USER` | **yes** | NuGet trusted-publishing user |
 
 ```yaml
 # .github/workflows/ci.yml in a library repo, e.g. marten-configuration
@@ -56,18 +51,58 @@ on:
 jobs:
   ci:
     uses: andregoepel/workflows/.github/workflows/ci-library.yml@main
-    with:
-      pack-projects: |
-        src/AndreGoepel.Marten.Configuration/AndreGoepel.Marten.Configuration.csproj
-    secrets:
-      NUGET_USER: ${{ secrets.NUGET_USER }}
+
+  pack-and-publish:
+    needs: ci
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       id-token: write # NuGet OIDC trusted publishing
       contents: read
+    steps:
+      - uses: andregoepel/workflows/.github/actions/nuget-publish@main
+        with:
+          pack-projects: |
+            src/AndreGoepel.Marten.Configuration/AndreGoepel.Marten.Configuration.csproj
+          nuget-user: ${{ secrets.NUGET_USER }}
 ```
 
 Multi-package repos (e.g. marten-identity, app-foundation) list every
 project on its own line under `pack-projects`.
+
+### `nuget-publish` action
+
+Not a `workflow_call` workflow but a composite action, called with `uses:
+andregoepel/workflows/.github/actions/nuget-publish@main` from a job defined
+**directly in the consumer repo's own `ci.yml`** (see example above) — never
+from inside another called reusable workflow.
+
+Reason: NuGet.org's Trusted Publishing validates the OIDC token's
+`job_workflow_ref` claim against the workflow file that defines the job
+requesting the token. For a job inside a called `workflow_call` workflow,
+that claim points at the *called* workflow (this repo), not the consumer —
+so a policy scoped to the consumer repo can never match, no matter how the
+policy is configured on nuget.org's end (confirmed as a structural
+limitation, not a config mistake, in
+[NuGet/login#6](https://github.com/NuGet/login/issues/6) and
+[github/community#179952](https://github.com/orgs/community/discussions/179952)).
+A composite action runs as steps inside the *caller's* own job, so
+`job_workflow_ref` still points at the consumer's own workflow file and its
+trusted-publishing policy matches correctly.
+
+Checks out the tag, installs the SDK, packs every project listed, then
+exchanges the OIDC token for a short-lived NuGet API key and pushes.
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `pack-projects` | **yes** | — | Newline-separated `.csproj` paths to pack |
+| `nuget-user` | **yes** | — | NuGet trusted-publishing user |
+| `nuget-source` | no | `https://api.nuget.org/v3/index.json` | Push target |
+| `dotnet-version` | no | `10.0.x` | SDK version, `setup-dotnet` syntax |
+
+The calling job must set `permissions: id-token: write` (to request the OIDC
+token) and needs no other setup — the action does its own checkout and
+`setup-dotnet`.
 
 ### `ci-hostapp.yml`
 
