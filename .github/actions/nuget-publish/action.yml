@@ -1,0 +1,64 @@
+name: NuGet pack & publish
+
+description: >
+  Checks out the pushed tag, packs the given projects at the tag's version,
+  and publishes them to NuGet via OIDC trusted publishing. Deliberately a
+  composite action rather than a reusable `workflow_call` workflow: NuGet.org
+  validates the OIDC token's `job_workflow_ref` claim against the workflow
+  file that defines the *running job*, which for a called reusable workflow
+  is the reusable workflow itself, not the caller. Trusted-publishing
+  policies therefore cannot be scoped to a workflow called from a different
+  repo (see NuGet/login#6 and github/community#179952). A composite action
+  runs as steps inside the caller's own job, so `job_workflow_ref` still
+  points at the consumer repo's own workflow file and its trusted-publishing
+  policy matches.
+
+inputs:
+  pack-projects:
+    description: "Newline-separated list of .csproj paths to pack and publish"
+    required: true
+  nuget-user:
+    description: "NuGet trusted-publishing user, exchanged for a short-lived API key via NuGet/login"
+    required: true
+  nuget-source:
+    description: "NuGet feed to push packages to"
+    required: false
+    default: "https://api.nuget.org/v3/index.json"
+  dotnet-version:
+    description: ".NET SDK version to install (setup-dotnet dotnet-version syntax)"
+    required: false
+    default: "10.0.x"
+
+# Actions are pinned to commit SHAs (not mutable tags) so a retagged or
+# compromised action version cannot silently enter the pipeline. The trailing
+# comment records the human-readable version each SHA corresponds to.
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+
+    - name: Pack
+      shell: bash
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        while IFS= read -r proj; do
+          [ -z "$proj" ] && continue
+          dotnet pack "$proj" -c Release -p:Version=$VERSION -p:RestoreLockedMode=true -o nupkgs
+        done <<< "${{ inputs.pack-projects }}"
+
+    # Trusted publishing: exchange the GitHub OIDC token for a short-lived
+    # nuget.org API key. Requires a trusted publishing policy on the target
+    # feed for this repository + workflow file.
+    - name: NuGet login (OIDC → temporary API key)
+      uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+      id: login
+      with:
+        user: ${{ inputs.nuget-user }}
+
+    - name: Push to NuGet
+      shell: bash
+      run: dotnet nuget push "nupkgs/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source ${{ inputs.nuget-source }}
