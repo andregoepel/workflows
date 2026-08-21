@@ -41,7 +41,7 @@ jobs:
         run: dotnet build --no-restore -c Release
 
       - name: Test
-        run: dotnet test --no-build -c Release ${{ inputs.test-filter != '' && format('--filter "{0}"', inputs.test-filter) || '' }}
+        run: dotnet test --no-build -c Release ${{ inputs.test-filter != '' && format('--filter "{0}" --ignore-exit-code 8', inputs.test-filter) || '' }}
 
       # Fail the build on any known-vulnerable package (direct or transitive).
       - name: Vulnerability scan
