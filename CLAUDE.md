@@ -21,8 +21,7 @@ here. What applies instead:
   trace-capture-on-failure
 - `.github/workflows/docker-image.yml` — GHCR image build + push
 - `.github/workflows/validate.yml` — lints the four workflows above with
-  `actionlint` on every push/PR to this repo, so a broken reusable workflow
-  never reaches `@main` for a consumer to pull
+  `actionlint` and validates the canonical container baseline on every push/PR
 - `templates/` — canonical config boilerplate (`Directory.Build.props`,
   `.editorconfig`, `.gitattributes`, `dependabot.yml`,
   `dependabot-lockfile-sync.yml`, `NuGet.config`,
@@ -39,8 +38,15 @@ and a copy-pasteable `uses:` example.
   is pinned to a commit SHA with a trailing version comment — never a
   mutable tag. This repo is a supply-chain choke point for six other repos;
   a compromised action here compromises all of them at once.
+- Consumer examples use a full workflow commit SHA, never `@main` or another
+  mutable ref. The `{{WORKFLOWS_COMMIT_SHA}}` documentation placeholder must be
+  resolved when copied; Dependabot keeps the resulting pin current.
+- Canonical host-app Dockerfiles pin every external base image as
+  `tag@sha256:<digest>`, and their Dependabot config covers the Dockerfile
+  directory. Production deployment identity is the manifest digest emitted by
+  the approved build, never a convenience tag such as `latest`.
 - A change to an existing input's name, type, or required-ness is a
-  breaking change for every consumer still on `@main`. Prefer adding a new
+  breaking change for consumers pinned before that change. Prefer adding a new
   optional input with a default that preserves current behavior over
   renaming or repurposing one.
 - Don't add a fifth reusable workflow speculatively — wait until a second

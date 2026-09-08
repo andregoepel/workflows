@@ -13,7 +13,8 @@ ecosystem.
 
 [`templates/`](templates/) holds the config boilerplate that's 90–100%
 identical across every .NET repo in the ecosystem (`Directory.Build.props`,
-`.editorconfig`, `.gitattributes`, `dependabot.yml`,
+`.editorconfig`, `.gitattributes`, Dependabot variants, a digest-pinned host-app
+Dockerfile,
 `dependabot-lockfile-sync.yml`, `NuGet.config`,
 `tests/Directory.Build.props`). Unlike the reusable workflows below, these
 are copied into a consumer repo rather than referenced with `uses:`. See
@@ -22,9 +23,11 @@ variant applies when, and the `{{PLACEHOLDER}}` convention.
 
 ## Reusable workflows
 
-All four live in [`.github/workflows/`](.github/workflows/) and are called
-with `uses: andregoepel/workflows/.github/workflows/<file>.yml@main`. Pin to
-`@main` for now (see [Versioning](#versioning) below).
+All four live in [`.github/workflows/`](.github/workflows/) and are called at a
+reviewed full commit SHA. In the examples below, replace
+`{{WORKFLOWS_COMMIT_SHA}}` with the 40-character commit selected from this
+repository. Never replace it with `main` or another mutable ref. The consumer's
+`github-actions` Dependabot entry keeps the SHA current afterward.
 
 ### `ci-library.yml`
 
@@ -50,7 +53,7 @@ on:
 
 jobs:
   ci:
-    uses: andregoepel/workflows/.github/workflows/ci-library.yml@main
+    uses: andregoepel/workflows/.github/workflows/ci-library.yml@{{WORKFLOWS_COMMIT_SHA}}
 
   pack-and-publish:
     needs: ci
@@ -60,7 +63,7 @@ jobs:
       id-token: write # NuGet OIDC trusted publishing
       contents: read
     steps:
-      - uses: andregoepel/workflows/.github/actions/nuget-publish@main
+      - uses: andregoepel/workflows/.github/actions/nuget-publish@{{WORKFLOWS_COMMIT_SHA}}
         with:
           pack-projects: |
             src/AndreGoepel.Marten.Configuration/AndreGoepel.Marten.Configuration.csproj
@@ -73,7 +76,7 @@ project on its own line under `pack-projects`.
 ### `nuget-publish` action
 
 Not a `workflow_call` workflow but a composite action, called with `uses:
-andregoepel/workflows/.github/actions/nuget-publish@main` from a job defined
+andregoepel/workflows/.github/actions/nuget-publish@<full-commit-sha>` from a job defined
 **directly in the consumer repo's own `ci.yml`** (see example above) — never
 from inside another called reusable workflow.
 
@@ -130,7 +133,7 @@ on:
 
 jobs:
   ci:
-    uses: andregoepel/workflows/.github/workflows/ci-hostapp.yml@main
+    uses: andregoepel/workflows/.github/workflows/ci-hostapp.yml@{{WORKFLOWS_COMMIT_SHA}}
     with:
       restore-projects: |
         src/AndreGoepel.FinanceApp/AndreGoepel.FinanceApp.csproj
@@ -178,7 +181,7 @@ on:
 
 jobs:
   e2e:
-    uses: andregoepel/workflows/.github/workflows/e2e.yml@main
+    uses: andregoepel/workflows/.github/workflows/e2e.yml@{{WORKFLOWS_COMMIT_SHA}}
     with:
       e2e-project: tests/AndreGoepel.FinanceApp.E2ETests/AndreGoepel.FinanceApp.E2ETests.csproj
       global-json-file: global.json
@@ -190,7 +193,9 @@ A repo pinned only via SDK version (e.g. marten-identity) omits
 ### `docker-image.yml`
 
 Builds the deployed app's Docker image on every push/PR; pushes to GHCR
-(tagged `:<sha>` and `:latest`) only on push to `main`.
+(tagged `:<sha>` and `:latest`) only on push to `main`. The called workflow
+exposes `jobs.<job-id>.outputs.digest`, which is the immutable manifest digest
+that a downstream deployment must consume.
 
 | Input | Required | Default | Description |
 |---|---|---|---|
@@ -214,7 +219,7 @@ on:
 
 jobs:
   docker:
-    uses: andregoepel/workflows/.github/workflows/docker-image.yml@main
+    uses: andregoepel/workflows/.github/workflows/docker-image.yml@{{WORKFLOWS_COMMIT_SHA}}
     with:
       image: ghcr.io/${{ github.repository }}
       dockerfile: ./src/AndreGoepel.FinanceApp/Dockerfile
@@ -222,6 +227,24 @@ jobs:
       contents: read
       packages: write # push to GHCR via the built-in GITHUB_TOKEN
 ```
+
+For a caller job named `docker`, the pushed image is selected immutably as:
+
+```yaml
+jobs:
+  deploy:
+    needs: docker
+    runs-on: ubuntu-latest
+    env:
+      APP_IMAGE: ghcr.io/andregoepel/finance-app@${{ needs.docker.outputs.digest }}
+    steps:
+      # Pass APP_IMAGE to the deployment mechanism and verify the running digest.
+      - run: ./deploy.sh "$APP_IMAGE"
+```
+
+The deployment must pass that reference to its orchestrator, verify the
+running container against the expected digest, and record both values for
+audit and rollback. `latest` remains a convenience/discovery tag only.
 
 `Nerdventures-Studio/customer-portal` passes `image:
 ghcr.io/nerdventures-studio/customer-portal` explicitly instead.
@@ -237,19 +260,16 @@ though the reusable workflow itself declares the permissions it needs.
 
 ## Versioning
 
-Every workflow here is pinned to a commit SHA internally for every third-party
-action it uses (never a mutable tag), so a compromised upstream action can't
-silently enter any consumer's pipeline. Consumers currently pin their `uses:`
-to `@main` — there is no tagged-release scheme yet for this repo itself. If
-that becomes a problem (a breaking change to an input contract landing on
-`main` without warning), switch consumers to a `vX` tag instead; not needed
-for the initial bootstrap.
+Every workflow here pins third-party actions to full commit SHAs, and every
+consumer must pin this repository the same way. Select a reviewed commit from
+`main`, place its 40-character SHA in the consumer workflow with a same-line
+reference comment, and let Dependabot propose later revisions. A moving branch
+or major-version tag is not an acceptable pipeline identity.
 
 ## Validation
 
-[`validate.yml`](.github/workflows/validate.yml) runs `actionlint` on every
-push/PR to this repo, so a broken reusable workflow is caught here before
-any consumer pulls it from `@main`.
+[`validate.yml`](.github/workflows/validate.yml) runs `actionlint` and checks
+the immutable container baseline on every push/PR to this repo.
 
 ## Migration status
 

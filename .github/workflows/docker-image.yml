@@ -15,6 +15,10 @@ on:
         description: "Docker build context"
         type: string
         default: "."
+    outputs:
+      digest:
+        description: "Immutable manifest digest of the image pushed by this workflow"
+        value: ${{ jobs.build.outputs.digest }}
 
 # Actions are pinned to commit SHAs (not mutable tags) so a retagged or
 # compromised action version cannot silently enter the pipeline. The trailing
@@ -23,6 +27,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+
     permissions:
       contents: read
       packages: write # push to GitHub Container Registry via the built-in GITHUB_TOKEN
@@ -30,20 +37,33 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Build the Docker image
-        run: |
-          docker build ${{ inputs.context }} \
-            --file ${{ inputs.dockerfile }} \
-            --tag "${{ inputs.image }}:${{ github.sha }}" \
-            --tag "${{ inputs.image }}:latest"
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # Only publish from main; pull requests build the image but do not push.
       - name: Log in to GitHub Container Registry
         if: github.event_name == 'push'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push image
+      - name: Build and optionally push the Docker image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ inputs.image }}:${{ github.sha }}
+            ${{ inputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record immutable image digest
         if: github.event_name == 'push'
-        run: |
-          docker push "${{ inputs.image }}:${{ github.sha }}"
-          docker push "${{ inputs.image }}:latest"
+        env:
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "Published $IMAGE@$DIGEST"
