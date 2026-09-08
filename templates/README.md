@@ -25,6 +25,9 @@ these templates:
 | `{{AUTHOR}}` | NuGet `Authors` / copyright holder | `André Göpel` |
 | `{{COPYRIGHT}}` | Full `Copyright` property value | `© André Göpel` |
 | `{{REPO_URL}}` | This repo's GitHub URL | `https://github.com/andregoepel/finance-app` |
+| `{{PROJECT_PATH}}` | App project directory relative to the repo root | `src/AndreGoepel.FinanceApp` |
+| `{{PROJECT_NAME}}` | App project and output assembly name | `AndreGoepel.FinanceApp` |
+| `{{DOCKERFILE_DIRECTORY}}` | Dockerfile directory without leading slash | `src/AndreGoepel.FinanceApp` |
 
 Files with no placeholder table entry below are byte-identical across all
 six repos today — copy them as-is, no substitution needed.
@@ -126,11 +129,32 @@ types your repo actually carries.
 No placeholders — adopt verbatim, then add repo-specific binary lines as
 needed.
 
-### `dependabot.yml`
+### `dependabot.yml` / `dependabot.hostapp.yml`
 
-Adopt as `.github/dependabot.yml`. Byte-identical across all six repos
-already — two ecosystems (`nuget`, `github-actions`), weekly, NuGet minor/
-patch grouped into one PR. No placeholders.
+Adopt the appropriate variant as `.github/dependabot.yml`:
+
+- `dependabot.yml` is for library repositories and covers NuGet plus
+  SHA-pinned GitHub Actions.
+- `dependabot.hostapp.yml` adds the Docker ecosystem. Replace
+  `{{DOCKERFILE_DIRECTORY}}` with the directory containing the host's
+  Dockerfile so Dependabot can update its `tag@sha256:<digest>` references.
+
+If the repository contains a real Docker Compose manifest, add a
+`docker-compose` entry for its directory as well. Do not use that mechanism to
+move a production application image automatically: the application digest is
+the controlled output of an approved build/release.
+
+### `Dockerfile.hostapp`
+
+Adopt as the host application's `Dockerfile`. Replace `{{PROJECT_PATH}}` and
+`{{PROJECT_NAME}}`, then add any additional in-repo project references required
+before restore. The .NET runtime and SDK retain the readable `10.0` tag but are
+pinned to reviewed multi-architecture manifest digests. The host-app Dependabot
+template keeps those digests current through pull requests.
+
+Never remove the digest, replace it with a tag-only `FROM`, or deploy a moving
+application tag as the production identity. The reusable Docker workflow emits
+the pushed manifest digest; the deployment must consume and verify it.
 
 ### `dependabot-lockfile-sync.yml`
 
@@ -162,12 +186,15 @@ clears any inherited/machine-level package sources and pins to
    noted above (dropping any `.library` / `.hostapp` / `.web` /
    `.pure-csharp` suffix).
 2. Fill in every `{{PLACEHOLDER}}` — see the table above.
-3. For `tests.Directory.Build.props`: remove `TargetFramework`,
+3. For a host app, confirm every external `FROM` uses `tag@sha256:<digest>`,
+   the Dependabot Docker directory matches the Dockerfile, and the consumer
+   workflow is pinned to a full `andregoepel/workflows` commit SHA.
+4. For `tests.Directory.Build.props`: remove `TargetFramework`,
    `ImplicitUsings`, `Nullable`, `IsPackable` from each existing
    `tests/**/*.csproj`'s `<PropertyGroup>` (now inherited); keep anything
    genuinely project-specific.
-4. Run the repo's normal build/format/test cycle and fix anything the
+5. Run the repo's normal build/format/test cycle and fix anything the
    newly-strict `TreatWarningsAsErrors` (if not already set) surfaces.
-5. Diff the result against a sibling repo that's already aligned (e.g.
+6. Diff the result against a sibling repo that's already aligned (e.g.
    marten-identity for a library, finance-app for a host app) as a sanity
    check before opening the PR.

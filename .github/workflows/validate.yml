@@ -7,9 +7,8 @@ on:
     branches: ["main"]
 
 # This repo ships reusable `workflow_call` workflows consumed by other repos via
-# `uses: andregoepel/workflows/.github/workflows/*.yml@main`. A syntax or shellcheck
-# error here would only surface in a *consumer's* CI run, so it is linted on every
-# push/PR to this repo instead — broken workflows must never reach `@main`.
+# A syntax or shellcheck error here would only surface in a consumer's CI run,
+# so it is linted on every push/PR to this repo.
 #
 # Actions are pinned to commit SHAs (not mutable tags) so a retagged or
 # compromised action version cannot silently enter the pipeline.
@@ -32,3 +31,30 @@ jobs:
           # so skip diff-based filtering entirely instead of deepening the
           # checkout just to support a filter we don't need.
           filter_mode: nofilter
+
+  canonical-container-baseline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate immutable host-app container templates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -E '^FROM[[:space:]]+[^[:space:]]*[./][^[:space:]]*' templates/Dockerfile.hostapp \
+            | grep -Ev '^FROM[[:space:]]+[^[:space:]]+:[^[:space:]@]+@sha256:[0-9a-f]{64}([[:space:]]+AS[[:space:]]+[A-Za-z0-9._-]+)?$'; then
+            echo '::error file=templates/Dockerfile.hostapp::Every external FROM reference must use tag@sha256:digest.'
+            exit 1
+          fi
+
+          if ! grep -Eq 'package-ecosystem:[[:space:]]+docker' templates/dependabot.hostapp.yml; then
+            echo '::error file=templates/dependabot.hostapp.yml::The host-app template must enable Docker updates.'
+            exit 1
+          fi
+
+          if grep -REn 'uses:[[:space:]]+[^[:space:]]+@(main|master|v[0-9]+([.][0-9]+)*)[[:space:]]*$' .github templates README.md CLAUDE.md; then
+            echo '::error::Canonical workflows and examples must use full commit SHAs, not mutable refs.'
+            exit 1
+          fi
