@@ -279,10 +279,13 @@ def wait_for_gates(
         require(left > 0, "Timed out waiting for mandatory gates")
         polls = (remaining() - reserve) // batch
         require(polls > 0, "Insufficient GitHub API budget for gate polling")
-        # At least one minute between rounds; spread a smaller available budget
-        # over the rest of the wait instead of consuming it in an early burst.
-        sleep(min(left, max(60, left / polls)))
-        require(clock() < deadline, "Timed out waiting for mandatory gates")
+        # At least one minute between regular rounds; spread a smaller available
+        # budget over the rest of the wait rather than consuming an early burst.
+        # Leave a slot after the last affordable poll, rather than sleeping away
+        # its entire opportunity when polls == 1. At the deadline, execute the
+        # already budgeted terminal poll; only its pending result means timeout.
+        # In-flight HTTP requests retain their own bounded transport timeout.
+        sleep(min(left, max(60, left / (polls + 1))))
 
 
 def recheck(api, config, build, pinned):

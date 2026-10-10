@@ -89,7 +89,9 @@ class PollingBudgetTests(unittest.TestCase):
         with patch.object(producer, "http", side_effect=server.http):
             with self.assertRaisesRegex(evidence.InvalidEvidence, "Timed out"):
                 server.wait(api)
-        self.assertAlmostEqual(1200, server.clock())
+        # One terminal poll may finish just after the wait deadline; the fake
+        # transport takes 100 ms for each of its 18 live lookups.
+        self.assertAlmostEqual(1201.8, server.clock())
         self.assertLessEqual(server.calls.total(), 400)
         self.assertGreaterEqual(server.budget, 96)
         # Stable lookups occur once; successful run attempts are still monitored.
@@ -111,6 +113,46 @@ class PollingBudgetTests(unittest.TestCase):
         self.assertLess(server.calls.total(), 460)
         self.assertEqual(3, server.calls[""])
         self.assertEqual(3, server.calls["/actions/workflows/3100"])
+
+    def test_last_affordable_poll_runs_before_timeout_with_150_requests(self):
+        server = GitHubServer(budget=150, completes_at=60)
+        api = producer.GitHub(CONFIG["repository"]["name"], "test")
+        with patch.object(producer, "http", side_effect=server.http):
+            pinned = server.wait(api)
+            self.assertEqual(46, server.calls.total())
+            self.assertGreaterEqual(server.budget, 96)
+            self.assertLess(server.clock(), 1200)
+            evidence.recheck(api, server.config, BUILD, pinned)
+            evidence.recheck(api, server.config, BUILD, pinned)
+        self.assertEqual(102, server.calls.total())
+        self.assertEqual(48, server.budget)
+
+    def test_short_wait_executes_terminal_poll_before_declaring_timeout(self):
+        for completes_at in (10, None):
+            with self.subTest(completes_at=completes_at):
+                server = GitHubServer(budget=150, completes_at=completes_at)
+                api = producer.GitHub(CONFIG["repository"]["name"], "test")
+                with patch.object(producer, "http", side_effect=server.http):
+
+                    def wait():
+                        return evidence.wait_for_gates(
+                            api,
+                            server.config,
+                            BUILD,
+                            seconds=30,
+                            clock=server.clock,
+                            sleep=server.clock.sleep,
+                        )
+
+                    if completes_at is None:
+                        with self.assertRaisesRegex(
+                            evidence.InvalidEvidence, "Timed out"
+                        ):
+                            wait()
+                    else:
+                        self.assertEqual(8, len(wait()))
+                self.assertEqual(46, server.calls.total())
+                self.assertAlmostEqual(31.8, server.clock())
 
     def test_partly_used_repository_budget_slows_polls_and_reserves_rechecks(self):
         server = GitHubServer(budget=200, completes_at=850)

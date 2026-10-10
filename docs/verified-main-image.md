@@ -75,14 +75,18 @@ supported by this workflow. See the official [job context reference](https://doc
    above 100 entries or inconsistent counts fail closed.
    During this wait, cache repository/workflow identity lookups, but continue
    checking live run listings and attempts for every gate, including successful
-   gates. Poll no faster than once per minute and slow down further when response
+   gates. Space regular polls at least one minute apart and slow down when response
    headers report a smaller remaining API budget. Leave 96 requests for later
    verification and headroom; if polling cannot preserve that allowance, stop
    before building. This is a local allowance, not a reservation against other
    jobs sharing the repository's token budget. All pre-push and pre-manifest
    provenance rechecks bypass the wait cache. The eight-gate, 20-minute regression
-   simulation with 100 ms responses uses 370 polling requests, below GitHub's
+   simulation with 100 ms responses uses 388 polling requests, below GitHub's
    standard [1,000 requests/hour/repository limit](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#primary-rate-limit-for-github_token-in-github-actions).
+   Schedule the last affordable poll before the deadline where possible. A poll
+   already scheduled at the deadline still runs before declaring timeout; its
+   bounded HTTP requests can finish after the 20-minute wait. No further poll is
+   scheduled after a pending terminal result.
 3. Inspect the reserved tag `verified-v2-<full-sha>`. Only an explicit registry
    `MANIFEST_UNKNOWN`/`NAME_UNKNOWN` 404 permits a fresh build. Authentication,
    permission, throttling, network and malformed-response errors stop the job.
