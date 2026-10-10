@@ -240,13 +240,49 @@ def gates(api, config, pinned):
 def wait_for_gates(
     api, config, build, *, seconds=1200, clock=time.monotonic, sleep=time.sleep
 ):
-    deadline, pinned = clock() + seconds, {}
+    deadline, pinned, identities = clock() + seconds, {}, {}
+    # At eight gates two full fresh rechecks cost 56 requests. Keep additional
+    # room for retained artifact/origin checks and concurrent repository traffic.
+    reserve, requests = 96, 0
+    stable = {
+        "",
+        *(
+            f'/actions/workflows/{item["id"]}'
+            for item in [config["build"], *config["gates"].values()]
+        ),
+    }
+
+    def remaining():
+        return min(1000 - requests, getattr(api, "remaining", 1000))
+
+    def polling_api(path):
+        nonlocal requests
+        if path in identities:
+            return identities[path]
+        require(
+            remaining() > reserve, "Insufficient GitHub API budget for gate polling"
+        )
+        value = api(path)
+        requests += 1
+        if path in stable:
+            identities[path] = value
+        return value
+
+    # Only stable repository/workflow metadata is cached. Run listings and
+    # attempts, including already successful gates, are checked on every poll.
+    batch = 2 + 2 * len(config["gates"])
     while True:
-        current_build(api, config, build)
-        if gates(api, config, pinned):
+        current_build(polling_api, config, build)
+        if gates(polling_api, config, pinned):
             return pinned
+        left = deadline - clock()
+        require(left > 0, "Timed out waiting for mandatory gates")
+        polls = (remaining() - reserve) // batch
+        require(polls > 0, "Insufficient GitHub API budget for gate polling")
+        # At least one minute between rounds; spread a smaller available budget
+        # over the rest of the wait instead of consuming it in an early burst.
+        sleep(min(left, max(60, left / polls)))
         require(clock() < deadline, "Timed out waiting for mandatory gates")
-        sleep(min(15, max(0, deadline - clock())))
 
 
 def recheck(api, config, build, pinned):

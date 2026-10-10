@@ -43,16 +43,27 @@ class GitHub:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        self.remaining = 1000
+
+    def _get(self, path):
+        evidence.require(self.remaining > 0, "GitHub API budget exhausted")
+        status, headers, raw = http(self.base + path, self.headers)
+        self.remaining -= 1
+        reported = headers.get("x-ratelimit-remaining")
+        if reported is not None:
+            evidence.match(reported, r"[0-9]{1,9}")
+            # Headers can fluctuate between regions. Never increase this job's
+            # allowance on a larger observation or assume a reset has occurred.
+            self.remaining = min(self.remaining, int(reported))
+        return status, headers, raw
 
     def __call__(self, path):
-        status, _, raw = http(self.base + path, self.headers)
+        status, _, raw = self._get(path)
         evidence.require(status == 200, "GitHub request failed (status %s)" % status)
         return evidence.parse(raw, 2 * 1024 * 1024)
 
     def archive(self, artifact_id):
-        status, headers, _ = http(
-            self.base + f"/actions/artifacts/{artifact_id}/zip", self.headers
-        )
+        status, headers, _ = self._get(f"/actions/artifacts/{artifact_id}/zip")
         evidence.require(status == 302, "Artifact download redirect required")
         url = headers["Location"]
         parsed = urllib.parse.urlsplit(url)
