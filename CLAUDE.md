@@ -20,7 +20,11 @@ here. What applies instead:
 - `.github/workflows/e2e.yml` — Aspire + Playwright E2E, with mandatory
   trace-capture-on-failure
 - `.github/workflows/docker-image.yml` — GHCR image build + push
-- `.github/workflows/validate.yml` — lints the four workflows above with
+- `.github/workflows/verified-main-image.yml` — opt-in same-commit CI/E2E-gated
+  main build and generation-2 manifest producer; see docs/verified-main-image.md
+- `tools/` and `tests/` — standard-library Python producer and offline provenance
+  tests; run `python -I -B tests/run.py` (no .NET tools)
+- `.github/workflows/validate.yml` — lints the workflows above with
   `actionlint` and validates the canonical container baseline on every push/PR
 - `templates/` — canonical config boilerplate (`Directory.Build.props`,
   `.editorconfig`, `.gitattributes`, `dependabot.yml`,

@@ -23,7 +23,7 @@ variant applies when, and the `{{PLACEHOLDER}}` convention.
 
 ## Reusable workflows
 
-All four live in [`.github/workflows/`](.github/workflows/) and are called at a
+All reusable workflows live in [`.github/workflows/`](.github/workflows/) and are called at a
 reviewed full commit SHA. In the examples below, replace
 `{{WORKFLOWS_COMMIT_SHA}}` with the 40-character commit selected from this
 repository. Never replace it with `main` or another mutable ref. The consumer's
@@ -248,6 +248,19 @@ audit and rollback. `latest` remains a convenience/discovery tag only.
 
 `Nerdventures-Studio/customer-portal` passes `image:
 ghcr.io/nerdventures-studio/customer-portal` explicitly instead.
+
+### `verified-main-image.yml`
+
+Opt-in generation-2 producer for a separate main-push workflow. It waits for
+mandatory same-commit CI/E2E gates, builds one `linux/amd64` image or reuses an
+existing image backed by a successful build manifest, then uploads the bounded
+`deployment-manifest-v2` artifact and exposes immutable `digest`/`image` outputs.
+The existing `docker-image.yml` interface and its callers remain unchanged.
+
+See [the caller contract, example and retry limits](docs/verified-main-image.md).
+The source repository and every workflow are bound by name/path and numeric ID.
+This workflow needs `contents: read`, `actions: read` and `packages: write`, and
+supports GitHub.com-hosted main pushes only. App migrations are separate changes.
 
 ## Permissions
 
