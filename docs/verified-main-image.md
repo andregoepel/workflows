@@ -83,10 +83,10 @@ supported by this workflow. See the official [job context reference](https://doc
    provenance rechecks bypass the wait cache. The eight-gate, 20-minute regression
    simulation with 100 ms responses uses 388 polling requests, below GitHub's
    standard [1,000 requests/hour/repository limit](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#primary-rate-limit-for-github_token-in-github-actions).
-   Schedule the last affordable poll before the deadline where possible. A poll
-   already scheduled at the deadline still runs before declaring timeout; its
-   bounded HTTP requests can finish after the 20-minute wait. No further poll is
-   scheduled after a pending terminal result.
+   Spread affordable polls across the entire remaining wait window, retaining
+   the last affordable poll until the deadline. That terminal poll runs before
+   declaring timeout; its bounded HTTP requests can finish after the 20-minute
+   wait. No further poll is scheduled after a pending terminal result.
 3. Inspect the reserved tag `verified-v2-<full-sha>`. Only an explicit registry
    `MANIFEST_UNKNOWN`/`NAME_UNKNOWN` 404 permits a fresh build. Authentication,
    permission, throttling, network and malformed-response errors stop the job.

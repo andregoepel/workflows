@@ -114,18 +114,44 @@ class PollingBudgetTests(unittest.TestCase):
         self.assertEqual(3, server.calls[""])
         self.assertEqual(3, server.calls["/actions/workflows/3100"])
 
-    def test_last_affordable_poll_runs_before_timeout_with_150_requests(self):
+    def test_last_affordable_poll_runs_at_deadline_with_150_requests(self):
         server = GitHubServer(budget=150, completes_at=60)
         api = producer.GitHub(CONFIG["repository"]["name"], "test")
         with patch.object(producer, "http", side_effect=server.http):
             pinned = server.wait(api)
             self.assertEqual(46, server.calls.total())
             self.assertGreaterEqual(server.budget, 96)
-            self.assertLess(server.clock(), 1200)
+            self.assertAlmostEqual(1201.8, server.clock())
             evidence.recheck(api, server.config, BUILD, pinned)
             evidence.recheck(api, server.config, BUILD, pinned)
         self.assertEqual(102, server.calls.total())
         self.assertEqual(48, server.budget)
+
+    def test_affordable_polls_cover_late_completion_and_pending_deadline(self):
+        for budget in (150, 200, 250, 1000):
+            for completes_at in (0, 60, 650, 1000, 1199, None):
+                with self.subTest(budget=budget, completes_at=completes_at):
+                    server = GitHubServer(budget=budget, completes_at=completes_at)
+                    api = producer.GitHub(CONFIG["repository"]["name"], "test")
+                    with patch.object(producer, "http", side_effect=server.http):
+                        if completes_at is None:
+                            with self.assertRaisesRegex(
+                                evidence.InvalidEvidence, "Timed out"
+                            ):
+                                server.wait(api)
+                            self.assertAlmostEqual(1201.8, server.clock())
+                            self.assertGreaterEqual(server.budget, 96)
+                        else:
+                            pinned = server.wait(api)
+                            self.assertEqual(8, len(pinned))
+                            self.assertGreaterEqual(server.clock(), completes_at)
+                            self.assertLessEqual(server.clock(), 1201.800001)
+                            self.assertGreaterEqual(server.budget, 96)
+                            before = server.calls.total()
+                            evidence.recheck(api, server.config, BUILD, pinned)
+                            evidence.recheck(api, server.config, BUILD, pinned)
+                            self.assertEqual(56, server.calls.total() - before)
+                    self.assertLessEqual(server.calls.total(), budget)
 
     def test_short_wait_executes_terminal_poll_before_declaring_timeout(self):
         for completes_at in (10, None):
