@@ -21,9 +21,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def http(url, headers):
+def http(url, headers, *, data=None, method=None):
     """Bound responses and never forward credentials through redirects."""
-    request = urllib.request.Request(url, headers=headers)
+    request = urllib.request.Request(url, headers=headers, data=data, method=method)
     opener = urllib.request.build_opener(NoRedirect)
     try:
         response = opener.open(request, timeout=30)
@@ -92,11 +92,11 @@ class Registry:
         self.name = image.removeprefix("ghcr.io/")
         self.actor, self.token = actor, token
 
-    def authenticate(self):
+    def authenticate(self, *, actions="pull"):
         # Gate waits and builds can outlive a registry bearer token. Obtain a new
         # pull token for each bounded lookup instead of interpreting expiry as absence.
         query = urllib.parse.urlencode(
-            {"service": "ghcr.io", "scope": "repository:" + self.name + ":pull"}
+            {"service": "ghcr.io", "scope": "repository:" + self.name + ":" + actions}
         )
         auth = base64.b64encode((self.actor + ":" + self.token).encode()).decode()
         status, _, raw = http(
@@ -113,6 +113,10 @@ class Registry:
         }
 
     def digest(self, reference):
+        result = self.manifest(reference)
+        return result[0] if result is not None else None
+
+    def manifest(self, reference):
         status, headers, raw = http(
             "https://ghcr.io/v2/" + self.name + "/manifests/" + reference,
             self.authenticate(),
@@ -152,7 +156,7 @@ class Registry:
         )
         if reference.startswith("sha256:"):
             evidence.require(reference == digest, "Registry returned another digest")
-        return digest
+        return digest, raw
 
 
 def command(arguments, *, cwd=None, capture=False):

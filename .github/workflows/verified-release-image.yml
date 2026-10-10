@@ -1,0 +1,129 @@
+name: Verified release image
+
+on:
+  workflow_call:
+    inputs:
+      app-id:
+        description: "Stable application identity"
+        type: string
+        required: true
+      source-repository:
+        description: "Exact owner/repository spelling of the caller"
+        type: string
+        required: true
+      source-repository-id:
+        description: "Numeric GitHub repository ID, encoded as a string"
+        type: string
+        required: true
+      build-workflow-path:
+        description: "Main-build caller workflow path, such as .github/workflows/build-main.yml"
+        type: string
+        required: true
+      build-workflow-id:
+        description: "Numeric main-build workflow ID, encoded as a string"
+        type: string
+        required: true
+      gates:
+        description: 'JSON object of mandatory gates: {"ci":{"path":".github/workflows/ci.yml","id":3001}}'
+        type: string
+        required: true
+      image:
+        description: "Lowercase GHCR image repository under the source owner"
+        type: string
+        required: true
+      dockerfile:
+        description: "Dockerfile recipe path recorded by the existing main build"
+        type: string
+        required: true
+      context:
+        description: "Context recipe path recorded by the existing main build"
+        type: string
+        default: "."
+    outputs:
+      digest:
+        description: "Verified immutable image manifest digest"
+        value: ${{ jobs.associate.outputs.digest }}
+      image:
+        description: "Verified GHCR repository@sha256 reference"
+        value: ${{ jobs.associate.outputs.image }}
+
+      release-tag:
+        description: "Readable registry release tag; deploy using the digest instead"
+        value: ${{ jobs.associate.outputs.release-tag }}
+
+permissions: {}
+
+jobs:
+  associate:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: verified-release-image-${{ inputs.image }}-${{ github.event.release.tag_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    outputs:
+      digest: ${{ steps.produce.outputs.digest }}
+      image: ${{ steps.produce.outputs.image }}
+      release-tag: ${{ steps.produce.outputs.release-tag }}
+    steps:
+      # job.workflow_* identifies the called workflow's exact source revision,
+      # whereas github.* continues to describe the caller. GitHub.com only.
+      # Parse the documented job JSON because actionlint 1.7.12 predates these
+      # fields. Missing fields fail here rather than falling back to caller code.
+      - name: Resolve the called workflow identity
+        id: producer-source
+        env:
+          JOB_IDENTITY: ${{ toJSON(job) }}
+        run: |
+          python3 -I - <<'PY'
+          import json, os, re
+          job = json.loads(os.environ["JOB_IDENTITY"])
+          assert job["workflow_repository"] == "andregoepel/workflows"
+          assert re.fullmatch(r"[0-9a-f]{40}", job["workflow_sha"])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("sha=" + job["workflow_sha"] + "\n")
+          PY
+
+      - name: Check out the pinned producer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: andregoepel/workflows
+          ref: ${{ steps.producer-source.outputs.sha }}
+          path: producer
+          persist-credentials: false
+
+      - name: Authenticate only to the image registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the published release and associate existing image bytes
+        id: produce
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_APP_ID: ${{ inputs.app-id }}
+          INPUT_SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+          INPUT_SOURCE_REPOSITORY_ID: ${{ inputs.source-repository-id }}
+          INPUT_BUILD_WORKFLOW_PATH: ${{ inputs.build-workflow-path }}
+          INPUT_BUILD_WORKFLOW_ID: ${{ inputs.build-workflow-id }}
+          INPUT_GATES: ${{ inputs.gates }}
+          INPUT_IMAGE: ${{ inputs.image }}
+          INPUT_DOCKERFILE: ${{ inputs.dockerfile }}
+          INPUT_CONTEXT: ${{ inputs.context }}
+        run: python3 -I -B "$GITHUB_WORKSPACE/producer/tools/verified_release.py"
+
+      - name: Upload the immutable association for this run attempt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-association-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-association-v1/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          overwrite: false
