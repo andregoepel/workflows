@@ -157,7 +157,8 @@ Each application adopts this workflow in its own PR, with its actual public
 repository/workflow identities, appropriate CI/E2E gates and a verified caller run.
 That hosted adoption run is still required to verify package permissions and the
 complete GitHub/GHCR exchange. Existing consumers are not changed by this feature.
-Release association without rebuilding is a separate workflow task.
+Release association without rebuilding uses the separate
+[verified release workflow](verified-release-image.md).
 
 Relevant upstream contracts: [workflow-run API](https://docs.github.com/en/rest/actions/workflow-runs),
 [artifact API](https://docs.github.com/en/rest/actions/artifacts), and

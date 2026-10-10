@@ -488,3 +488,4 @@ def reuse_evidence(api, config, digest, origin):
         successful=True,
     )
     require(ticket(previous) == build, "Manifest build attempt mismatch")
+    return value, {"id": artifact["id"], "digest": artifact["digest"]}

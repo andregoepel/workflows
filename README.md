@@ -262,6 +262,17 @@ The source repository and every workflow are bound by name/path and numeric ID.
 This workflow needs `contents: read`, `actions: read` and `packages: write`, and
 supports GitHub.com-hosted main pushes only. App migrations are separate changes.
 
+### `verified-release-image.yml`
+
+Associates a published SemVer release with an existing generation-2 main image,
+after independently checking its source commit, current successful build/gate
+attempts and retained manifest. Copies the exact image manifest bytes to a readable
+release tag and uploads an immutable association record for each run attempt.
+It never rebuilds or dispatches deployment. Requires `contents: read`,
+`actions: read` and `packages: write`.
+
+See [the caller contract, tag mapping and race/retry limits](docs/verified-release-image.md).
+
 ## Permissions
 
 `GITHUB_TOKEN` permissions granted to a called workflow are capped by the

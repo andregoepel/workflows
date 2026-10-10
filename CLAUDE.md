@@ -22,6 +22,8 @@ here. What applies instead:
 - `.github/workflows/docker-image.yml` — GHCR image build + push
 - `.github/workflows/verified-main-image.yml` — opt-in same-commit CI/E2E-gated
   main build and generation-2 manifest producer; see docs/verified-main-image.md
+- `.github/workflows/verified-release-image.yml` — opt-in release association with
+  existing verified bytes, without rebuilding; see docs/verified-release-image.md
 - `tools/` and `tests/` — standard-library Python producer and offline provenance
   tests; run `python -I -B tests/run.py` (no .NET tools)
 - `.github/workflows/validate.yml` — lints the workflows above with
