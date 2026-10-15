@@ -1,0 +1,46 @@
+name: Artifact retention probe
+
+# Diagnostic preparation only: no automatic trigger, registry or deployment access.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  retention:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout this exact diagnostic revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Create harmless first-attempt payload
+        if: github.run_attempt == 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'artifact-retention-probe\nrun=%s\nsha=%s\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$RUNNER_TEMP/retention.txt"
+      - name: Upload once, never replace on rerun
+        if: github.run_attempt == 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifact-retention-probe
+          path: ${{ runner.temp }}/retention.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+      - name: Observe retained artifact before any rerun upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -B tools/artifact_retention.py observe \
+            --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --sha "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/retention-observation.json"
