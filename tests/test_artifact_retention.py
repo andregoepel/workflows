@@ -112,6 +112,14 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             probe.compare(snapshot(), item)
 
+    def test_repository_transport_omits_trailing_slash(self):
+        with patch.object(probe.subprocess, "run") as command:
+            command.return_value.returncode = 0
+            command.return_value.stdout = b'{"full_name": "andregoepel/workflows"}'
+            self.assertEqual(probe.get("")["full_name"], probe.REPOSITORY)
+            self.assertEqual(command.call_args.args[0],
+                             ["gh", "api", "--method", "GET", f"repos/{probe.REPOSITORY}"])
+
     def test_read_transport_uses_get_only(self):
         with patch.object(probe.subprocess, "run") as command:
             command.return_value.returncode = 0

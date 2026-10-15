@@ -19,8 +19,9 @@ def require(condition, message):
 
 
 def get(suffix):
+    endpoint = f"repos/{REPOSITORY}" + (f"/{suffix}" if suffix else "")
     result = subprocess.run(
-        ["gh", "api", "--method", "GET", f"repos/{REPOSITORY}/{suffix}"],
+        ["gh", "api", "--method", "GET", endpoint],
         capture_output=True, timeout=40, check=False,
     )
     require(result.returncode == 0, "GitHub GET failed; no state change requested")
