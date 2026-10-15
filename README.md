@@ -21,6 +21,12 @@ are copied into a consumer repo rather than referenced with `uses:`. See
 [`templates/README.md`](templates/README.md) for what each file is, which
 variant applies when, and the `{{PLACEHOLDER}}` convention.
 
+## Manual diagnostics
+
+[Artifact retention probe](docs/artifact-retention-probe.md) compares original-artifact
+retention across whole-run and single-job reruns on hosted runners. It is manually
+dispatched and never publishes images or changes consumer workflows.
+
 ## Reusable workflows
 
 All reusable workflows live in [`.github/workflows/`](.github/workflows/) and are called at a
