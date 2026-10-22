@@ -1,0 +1,94 @@
+name: Sonar library readiness
+
+on:
+  workflow_call:
+    inputs:
+      tool-revision:
+        description: Full workflows commit SHA, identical to this reusable workflow pin and the consumer policy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  readiness:
+    if: >-
+      vars.SONAR_MAIN_ENABLED == 'true' &&
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    environment: sonar-main
+    timeout-minutes: 90
+    concurrency:
+      group: sonar-library-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Require successful CI for the current main revision
+        env:
+          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          TOOL_REVISION: ${{ inputs.tool-revision }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$CANDIDATE_SHA"
+          test "$GITHUB_WORKFLOW_SHA" = "$CANDIDATE_SHA"
+          test "$CI_CONCLUSION" = success
+          [[ "$TOOL_REVISION" =~ ^[0-9a-f]{40}$ ]]
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the immutable shared runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: andregoepel/workflows
+          ref: ${{ inputs.tool-revision }}
+          path: artifacts/sonar/tool-source
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: artifacts/sonar/tool-source/sonar/global.json
+
+      - name: Build the pinned shared runner before exposing analysis credentials
+        working-directory: artifacts/sonar/tool-source/sonar
+        run: |
+          set -euo pipefail
+          dotnet restore src/AndreGoepel.Workflows.Sonar/AndreGoepel.Workflows.Sonar.csproj --locked-mode
+          dotnet publish src/AndreGoepel.Workflows.Sonar/AndreGoepel.Workflows.Sonar.csproj -c Release --no-restore -o "$RUNNER_TEMP/sonar-tool"
+
+      - name: Verify main evidence and perform full central analysis
+        env:
+          WORKFLOWS_GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOWS_SONAR_TOKEN: ${{ secrets.SONAR_SCAN_TOKEN }}
+          WORKFLOWS_SONAR_VERIFY_TOKEN: ${{ secrets.SONAR_VERIFY_TOKEN }}
+        run: |
+          set -euo pipefail
+          WORKFLOWS_SONAR_TOOL_SHA=$(git -C artifacts/sonar/tool-source rev-parse HEAD)
+          export WORKFLOWS_SONAR_TOOL_SHA
+          dotnet "$RUNNER_TEMP/sonar-tool/AndreGoepel.Workflows.Sonar.dll" --root "$GITHUB_WORKSPACE" --trusted-main
+
+      - name: Preserve sanitized analysis diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sonar-analysis-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/sonar/main-${{ github.run_id }}-${{ github.run_attempt }}/publish/summary.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish analysis readiness evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sonar-library-readiness-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/sonar/main-${{ github.run_id }}-${{ github.run_attempt }}/publish/readiness.json
+          if-no-files-found: error
+          retention-days: 1

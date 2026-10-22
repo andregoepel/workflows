@@ -7,9 +7,13 @@ includes. The `ci-library` → `ci-hostapp` → `e2e` / `docker-image` shape
 referenced by that root CLAUDE.md's "Commands" section lives here, not
 duplicated per-repo.
 
-This repo has no application code and no `Directory.Build.props` — the
+The repository root has no application code or `Directory.Build.props` — the
 `.NET repos` command/warning rules from the shared conventions don't apply
-here. What applies instead:
+to legacy image producers. The isolated `sonar/` C# tool follows the shared
+.NET conventions and has its own pinned SDK, formatting, build, tests and
+additive validation workflow. See `docs/sonar-library.md`.
+
+What applies to existing reusable workflows:
 
 ## What lives here
 
