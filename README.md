@@ -314,3 +314,9 @@ per-repo:
 - finance-app#65
 - customer-portal#89
 - andregoepel-dev#56
+
+## Opt-in Sonar readiness
+
+See [the library analysis guide](docs/sonar-library.md) for the additive shared
+runner, local verification, consumer policy and controlled activation.
+Existing CI and publishing workflows retain their behavior.

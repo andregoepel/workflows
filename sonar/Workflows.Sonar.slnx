@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/AndreGoepel.Workflows.Sonar/AndreGoepel.Workflows.Sonar.csproj" />
+  <Project Path="tests/AndreGoepel.Workflows.Sonar.Tests/AndreGoepel.Workflows.Sonar.Tests.csproj" />
+</Solution>

@@ -1,0 +1,5 @@
+artifacts/
+sonar/**/bin/
+sonar/**/obj/
+sonar/**/TestResults/
+**/__pycache__/

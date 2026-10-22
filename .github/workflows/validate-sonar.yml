@@ -1,0 +1,50 @@
+name: Validate Sonar runner
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: sonar
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: sonar/global.json
+      - name: Restore
+        run: dotnet restore --locked-mode
+      - name: Restore tools
+        run: dotnet tool restore
+      - name: Format check
+        run: dotnet csharpier check .
+      - name: Build
+        run: dotnet build -c Release --no-restore
+      - name: Test offline contracts
+        run: dotnet test -c Release --no-build --no-restore
+      - name: Audit dependencies
+        shell: pwsh
+        run: |
+          $audit = dotnet list package --vulnerable --include-transitive --format json --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $report = $audit | ConvertFrom-Json
+          if ($report.projects.Count -ne 2 -or $report.sources.Count -eq 0) { throw 'Incomplete dependency audit.' }
+          foreach ($project in $report.projects) {
+            foreach ($framework in $project.frameworks) {
+              if ($framework.topLevelPackages -or $framework.transitivePackages) { throw 'Vulnerable dependency found.' }
+            }
+          }
