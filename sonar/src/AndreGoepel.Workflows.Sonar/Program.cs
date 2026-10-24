@@ -10,6 +10,15 @@ Console.CancelKeyPress += (_, signal) =>
 
 try
 {
+    if (args.Any(arg => arg.StartsWith("--nuget-", StringComparison.Ordinal)))
+    {
+        var publication = await NuGetCommand.RunAsync(args, cancellation.Token);
+        if (publication.IsFailure)
+            await Console.Error.WriteLineAsync(publication.Error);
+
+        return publication.IsSuccess ? 0 : 1;
+    }
+
     if (args is ["--root", var root, "--trusted-main"])
     {
         var main = await MainCommand.RunAsync(root, cancellation.Token);
