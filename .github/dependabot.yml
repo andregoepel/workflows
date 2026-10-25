@@ -1,9 +1,18 @@
 version: 2
 updates:
-  # This repo ships GitHub Actions workflows, not application code — the only
-  # dependencies are the SHA-pinned actions used inside .github/workflows/*.yml.
-  # Dependabot updates both the pinned SHA and the version comment.
+  # Action and workflow pins remain reviewed commit SHAs.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+  # The isolated Sonar console tool has its own central package manifest and locks.
+  # SDK, scanner/coverage contracts and consumer pins still need coordinated review.
+  - package-ecosystem: nuget
+    directory: "/sonar"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      sonar-compatible-updates:
+        patterns: ["*"]
+        update-types: [minor, patch]
