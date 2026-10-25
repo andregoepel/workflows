@@ -7,6 +7,13 @@ on:
         description: Full workflows commit SHA, identical to this reusable workflow pin and the consumer policy
         required: true
         type: string
+    secrets:
+      SONAR_SCAN_TOKEN:
+        description: Project-scoped analysis token from the protected consumer environment
+        required: false
+      SONAR_VERIFY_TOKEN:
+        description: Browse-only verifier token from the protected consumer environment
+        required: false
 
 permissions:
   contents: read

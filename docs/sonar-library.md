@@ -88,6 +88,8 @@ See [GitHub's reusable workflow context](https://docs.github.com/en/actions/refe
 
 Analysis is serialized per consumer. During wave 1 only core is activated; do not
 enable a further consumer concurrently until staging capacity has been measured.
+See the [bounded capacity evidence and operating limits](sonar-capacity.md).
+Per-repository concurrency groups do not serialize different repositories.
 Successful final jobs upload one short-lived readiness record; failures may upload
 only the sanitized summary. Private logs, coverage XML and scanner files are never
 uploaded. Scanner scratch state is removed; an existing lock/state is preserved
@@ -122,8 +124,9 @@ dotnet list package --vulnerable --include-transitive --format json --no-restore
 
 The additive `validate-sonar.yml` runs these checks on Windows and Linux without
 Sonar credentials or publishing permissions. Existing validation remains in place.
-Until a separately reviewed Dependabot configuration change is approved, review
-the new NuGet/tool pins manually; existing Action update configuration is preserved.
+The [maintenance procedure](sonar-maintenance.md) defines dependency-update coverage,
+coordinated pin changes, credential rotation and the proposed named-secret handoff.
+Consumer adoption and hosted validation remain separate reviewed changes.
 
 ## Rollout acceptance and rollback
 

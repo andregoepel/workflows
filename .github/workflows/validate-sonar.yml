@@ -36,6 +36,9 @@ jobs:
         run: dotnet build -c Release --no-restore
       - name: Test offline contracts
         run: dotnet test -c Release --no-build --no-restore
+      - name: Test capacity evidence rejection
+        shell: pwsh
+        run: ./operations/test-capacity.ps1
       - name: Audit dependencies
         shell: pwsh
         run: |
