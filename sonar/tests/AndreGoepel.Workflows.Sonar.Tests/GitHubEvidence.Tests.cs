@@ -200,6 +200,119 @@ public sealed class GitHubEvidenceTests
         Assert.Equal(2, fixture.Delays);
     }
 
+    [Theory]
+    [InlineData("queued")]
+    [InlineData("waiting")]
+    public async Task Wait_PendingOwnRun_RequiresActiveRunBeforeReturningEvidence(string status)
+    {
+        // Arrange
+        var fixture = new MainFixture();
+        fixture.Responses["actions/runs/100"]["status"] = status;
+        fixture.Responses["actions/runs/100"]["conclusion"] = null;
+        fixture.OnDelay = () => fixture.Responses["actions/runs/100"]["status"] = "in_progress";
+
+        // Act
+        var result = await fixture.GitHub().WaitAsync(TestContext.Current.CancellationToken, 2);
+
+        // Assert
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(1, fixture.Delays);
+        Assert.Equal(fixture.Policy.Workflows.Length, result.Value!.Length);
+    }
+
+    [Theory]
+    [InlineData("queued")]
+    [InlineData("waiting")]
+    public async Task Wait_PermanentlyPendingOwnRun_FailsAtExistingDeadline(string status)
+    {
+        // Arrange
+        var fixture = new MainFixture();
+        fixture.Responses["actions/runs/100"]["status"] = status;
+        fixture.Responses["actions/runs/100"]["conclusion"] = null;
+
+        // Act
+        var result = await fixture.GitHub().WaitAsync(TestContext.Current.CancellationToken, 2);
+
+        // Assert
+        Assert.True(result.IsFailure);
+        Assert.Equal(2, fixture.Delays);
+        Assert.DoesNotContain(
+            fixture.Requests,
+            p => p.StartsWith("actions/workflows/", StringComparison.Ordinal)
+        );
+    }
+
+    [Theory]
+    [InlineData("head_sha", "wrong")]
+    [InlineData("path", ".github/workflows/other.yml")]
+    [InlineData("run_attempt", "changed")]
+    [InlineData("shared-sha", "changed")]
+    [InlineData("conclusion", "failure")]
+    public async Task Wait_PendingOwnRunWithChangedTrust_FailsWithoutWaiting(
+        string property,
+        string value
+    )
+    {
+        // Arrange
+        var fixture = new MainFixture();
+        var own = fixture.Responses["actions/runs/100"];
+        own["status"] = "waiting";
+        own["conclusion"] = null;
+        if (property == "run_attempt")
+            own[property] = 2;
+        else if (property == "shared-sha")
+            own["referenced_workflows"]![0]!["sha"] = value;
+        else
+            own[property] = value;
+
+        // Act
+        var result = await fixture.GitHub().WaitAsync(TestContext.Current.CancellationToken, 2);
+
+        // Assert
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, fixture.Delays);
+    }
+
+    [Fact]
+    public async Task Wait_MainAdvancesDuringOwnRunWait_RejectsCandidate()
+    {
+        // Arrange
+        var fixture = new MainFixture();
+        fixture.Responses["actions/runs/100"]["status"] = "waiting";
+        fixture.Responses["actions/runs/100"]["conclusion"] = null;
+        fixture.OnDelay = () => fixture.Responses["git/ref/heads/main"]["object"]!["sha"] = "newer";
+
+        // Act
+        var result = await fixture.GitHub().WaitAsync(TestContext.Current.CancellationToken, 2);
+
+        // Assert
+        Assert.True(result.IsFailure);
+        Assert.Equal(1, fixture.Delays);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Read_PendingOwnRun_StillRejectsAtVerificationBoundary(bool completedProducer)
+    {
+        // Arrange
+        var fixture = new MainFixture();
+        fixture.Responses["actions/runs/100"]["status"] = "waiting";
+        fixture.Responses["actions/runs/100"]["conclusion"] = null;
+
+        // Act
+        var result = await fixture
+            .GitHub()
+            .ReadAsync(
+                TestContext.Current.CancellationToken,
+                requireCompletedProducer: completedProducer
+            );
+
+        // Assert
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, fixture.Delays);
+    }
+
     [Fact]
     public async Task Read_ApiOutage_DoesNotReturnEvidence()
     {

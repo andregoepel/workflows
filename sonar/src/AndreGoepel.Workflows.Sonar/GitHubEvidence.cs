@@ -18,11 +18,11 @@ internal sealed class GitHubEvidence(
     {
         for (var poll = 0; poll < maximumPolls; poll++)
         {
-            var result = await ReadAsync(ct);
+            var result = await ReadAsync(ct, allowPendingOwnRun: true);
             if (result.IsFailure || result.Value!.Length == policy.Workflows.Length)
                 return result;
 
-            Console.WriteLine("Waiting for mandatory main CI evidence.");
+            Console.WriteLine("Waiting for active readiness run and mandatory main CI evidence.");
             await delay(TimeSpan.FromSeconds(10), ct);
         }
 
@@ -31,7 +31,8 @@ internal sealed class GitHubEvidence(
 
     internal async Task<Result<WorkflowEvidence[]>> ReadAsync(
         CancellationToken ct,
-        bool requireCompletedProducer = false
+        bool requireCompletedProducer = false,
+        bool allowPendingOwnRun = false
     )
     {
         var current = await client.GetAsync("git/ref/heads/main", ct);
@@ -44,12 +45,6 @@ internal sealed class GitHubEvidence(
         if (
             !MatchesSource(ownRun, "workflow_run", policy.WorkflowPath)
             || ownRun.GetProperty("run_attempt").GetInt32() != identity.Attempt
-            || ownRun.GetProperty("status").GetString()
-                != (requireCompletedProducer ? "completed" : "in_progress")
-            || (
-                requireCompletedProducer
-                && ownRun.GetProperty("conclusion").GetString() != "success"
-            )
         )
             return Result.Fail<WorkflowEvidence[]>(
                 "Unexpected readiness workflow identity or attempt."
@@ -68,6 +63,26 @@ internal sealed class GitHubEvidence(
         )
             return Result.Fail<WorkflowEvidence[]>(
                 "The readiness runner differs from the reviewed revision."
+            );
+
+        var status = ownRun.GetProperty("status").GetString();
+        if (
+            allowPendingOwnRun
+            && !requireCompletedProducer
+            && status is "queued" or "waiting"
+            && ownRun.GetProperty("conclusion").ValueKind == JsonValueKind.Null
+        )
+            return Result.Ok(Array.Empty<WorkflowEvidence>());
+
+        if (
+            status != (requireCompletedProducer ? "completed" : "in_progress")
+            || (
+                requireCompletedProducer
+                && ownRun.GetProperty("conclusion").GetString() != "success"
+            )
+        )
+            return Result.Fail<WorkflowEvidence[]>(
+                "Unexpected readiness workflow status or conclusion."
             );
 
         foreach (var expected in policy.Workflows)
