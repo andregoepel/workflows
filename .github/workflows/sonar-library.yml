@@ -90,7 +90,7 @@ jobs:
           name: sonar-analysis-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/sonar/main-${{ github.run_id }}-${{ github.run_attempt }}/publish/summary.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 90
 
       - name: Publish analysis readiness evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -98,4 +98,4 @@ jobs:
           name: sonar-library-readiness-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/sonar/main-${{ github.run_id }}-${{ github.run_attempt }}/publish/readiness.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 90

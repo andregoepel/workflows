@@ -141,3 +141,20 @@ revoke only this consumer's scoped credentials, and revert the additive caller
 through review if needed. Retain analysis evidence. Do not reset another project's
 baseline or change existing CI/publishing. A stopped readiness producer makes no
 claim that an existing publisher is protected.
+
+## Independent evidence archiving
+
+Analysis diagnostics and library-readiness ZIPs are retained for 90 days on this
+revision so an operator can capture their original archive bytes and GitHub
+SHA-256 digests outside Actions. Consumers adopt this behavior only through a
+reviewed immutable workflow/tool pin; existing older pins keep their retention.
+This changes storage duration only. Receipt expiry, CI age, exact source/attempt,
+reviewed gate/profiles and baseline checks remain enforced by the verifier. A
+retained or archived receipt is never standing release authorization.
+
+Capture the original ZIP, artifact ID/name/digest, repository/run/attempt/source
+metadata and an independently checked file manifest. Keep archival credentials
+and raw workflow console logs out of the evidence bundle. A local operator copy
+is independent of Actions deletion but is not an off-site backup or an automatic
+future capture. Explicitly record unavailable expired original archives; do not
+rebuild them or rerun a historical handoff and present it as the original proof.
